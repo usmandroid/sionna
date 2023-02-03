@@ -24,16 +24,16 @@ sys.path.insert(0, os.getcwd()+'/..') # +'/..'
 sys.path.insert(0, os.getcwd()+'/') # +'/..'
 
 import tensorflow as tf
-gpus = tf.config.list_physical_devices('GPU')
-print('Number of GPUs available :', len(gpus))
-if gpus:
-    gpu_num = 0 # Index of the GPU to use
-    try:
-        tf.config.set_visible_devices(gpus[gpu_num], 'GPU')
-        print('Only GPU number', gpu_num, 'used.')
-        tf.config.experimental.set_memory_growth(gpus[gpu_num], True)
-    except RuntimeError as e:
-        print(e)
+# gpus = tf.config.list_physical_devices('GPU')
+# print('Number of GPUs available :', len(gpus))
+# if gpus:
+#     gpu_num = 0 # Index of the GPU to use
+#     try:
+#         tf.config.set_visible_devices(gpus[gpu_num], 'GPU')
+#         print('Only GPU number', gpu_num, 'used.')
+#         tf.config.experimental.set_memory_growth(gpus[gpu_num], True)
+#     except RuntimeError as e:
+#         print(e)
 
 
 # get_ipython().run_line_magic('matplotlib', 'inline')
@@ -391,9 +391,10 @@ pilot_pattern = "kronecker" # Pilot pattern
 pilot_ofdm_symbol_indices = [2, 11] # Index of OFDM symbols carrying pilots
 cyclic_prefix_length = 0 # Simulation in frequency domain. This is useless
 
-############################################
+########################################################################################
 ## Modulation and coding configuration
-num_bits_per_symbol = 6 # 16-QAM
+num_bits_per_symbol = 4 # 16-QAM
+print(f"num_bits_per_symbol:{num_bits_per_symbol}")
 if num_bits_per_symbol == 1: NCBPS  = 48
 elif num_bits_per_symbol == 2: NCBPS  = 96
 elif num_bits_per_symbol == 4: NCBPS  = 192
@@ -402,23 +403,23 @@ else: NCBPS  = None
 constellation = generate_ieee8211_constellation(mu  = num_bits_per_symbol)
 
 coderate = 0.5 # Coderate for BCC code
-
-############################################
+print(f"coderate: {coderate}")
+########################################################################################
 ## Neural receiver configuration
-num_conv_channels = 128 # Number of convolutional channels for the convolutional layers forming the neural receiver
+num_conv_channels = 128 #128 # Number of convolutional channels for the convolutional layers forming the neural receiver
 
-############################################
+########################################################################################
 ## Training configuration
-num_training_iterations = 30000 # Number of training iterations
+num_training_iterations = 30000#30000 # Number of training iterations
 training_batch_size = 64 # Training batch size
 model_weights_path = "neural_receiver_weights"+"_R_"+'{:1.2f}'.format(coderate)+"_mu_" + '{:1}'.format(num_bits_per_symbol) # Location to save the neural receiver weights once training is done
 
-############################################
+########################################################################################
 ## Evaluation configuration
 results_filename = "neural_receiver_results" # Location to save the results
 
 
-############################################
+########################################################################################
 ## Antenna configuration
 stream_manager = StreamManagement(np.array([[1]]), # Receiver-transmitter association matrix
                                   1)               # One stream per transmitter
@@ -904,8 +905,8 @@ class E2ESystem(Model):
         # as it is not required
         if not training:
 
-            self._descrambler = IEEE80211Scrambler(seed = 127, batch_size = training_batch_size)
-            self._deinterleaver = IEEE80211Interleaver(NCBPS = NCBPS, inverse = True)
+            # self._descrambler = IEEE80211Scrambler(seed = 127, batch_size = training_batch_size)
+            # self._deinterleaver = IEEE80211Interleaver(NCBPS = NCBPS, inverse = True)
             self._decoder = ViterbiDecoder(self._encoder) #LDPC5GDecoder(self._encoder, hard_out=True)
     
     @tf.function
@@ -930,12 +931,12 @@ class E2ESystem(Model):
             b = self._binary_source([batch_size, 1, 1, k])
 
             # With scrambling and interleaving
-            b_scr = self._scrambler(b)
-            c = self._encoder(b_scr)
-            c = self._interleaver(c)
+            # b_scr = self._scrambler(b)
+            # c = self._encoder(b_scr)
+            # c = self._interleaver(c)
            
             # Without scrambling and interleaving
-            # c = self._encoder(b)
+            c = self._encoder(b)
 
         # Modulation
         x = self._mapper(c)
@@ -981,11 +982,11 @@ class E2ESystem(Model):
             # Outer decoding
 
 
-            llr = self._deinterleaver(llr)
-            b_hat_scr = self._decoder(llr)
-            b_hat = self._descrambler(b_hat_scr)
+            # llr = self._deinterleaver(llr)
+            # b_hat_scr = self._decoder(llr)
+            # b_hat = self._descrambler(b_hat_scr)
 
-            # b_hat = self._decoder(llr)
+            b_hat = self._decoder(llr)
 
             
             return b,b_hat # Ground truth and reconstructed information bits returned for BER/BLER computation
@@ -994,7 +995,7 @@ class E2ESystem(Model):
 
 # SNR range for evaluation and training [dB]
 ebno_db_min = 0.0
-ebno_db_max = 20.0
+ebno_db_max = 30.0
 # Range of SNRs over which the systems are evaluated
 ebno_dbs = np.arange(ebno_db_min, # Min SNR for evaluation
                      ebno_db_max, # Max SNR for evaluation
@@ -1003,57 +1004,55 @@ ebno_dbs = np.arange(ebno_db_min, # Min SNR for evaluation
 BLER = {}
 BER = {}
 
-"""# 3. Baseline"""
+# """# 3. Baseline"""
 
-model_baseline_perfect_csi = E2ESystem('baseline-perfect-csi')
-ber,bler = sim_ber(model_baseline_perfect_csi, ebno_dbs, batch_size=64, num_target_block_errors=100, max_mc_iter=100)
-BLER['baseline-perfect-csi'] = bler.numpy(); BER['baseline-perfect-csi'] = ber.numpy()
-model_ls_estimation = E2ESystem('baseline-ls-estimation')
-ber,bler = sim_ber(model_ls_estimation, ebno_dbs, batch_size=64, num_target_block_errors=100, max_mc_iter=100)
-BLER['baseline-ls-estimation'] = bler.numpy(); BER['baseline-ls-estimation'] = ber.numpy()
-
-plt.figure(figsize=(10,6))
-# Baseline - Perfect CSI
-plt.semilogy(ebno_dbs, BLER['baseline-perfect-csi'], 'o-', c=f'C0', label=f'Baseline - Perfect CSI')    
-# Baseline - LS Estimation
-plt.semilogy(ebno_dbs, BLER['baseline-ls-estimation'], 'x--', c=f'C1', label=f'Baseline - LS Estimation')
-# Neural receiver
-plt.semilogy(ebno_dbs, BLER['neural-receiver'], 's-.', c=f'C2', label=f'Neural receiver')
-#
-plt.xlabel(r"$E_b/N_0$ (dB)")
-plt.ylabel("BLER")
-plt.grid(which="both")
-plt.ylim((1e-4, 1.0))
-plt.legend()
-plt.tight_layout()
+# model_baseline_perfect_csi = E2ESystem('baseline-perfect-csi')
+# ber,bler = sim_ber(model_baseline_perfect_csi, ebno_dbs, batch_size=64, num_target_block_errors=100, max_mc_iter=100)
+# BLER['baseline-perfect-csi'] = bler.numpy(); BER['baseline-perfect-csi'] = ber.numpy()
+# model_ls_estimation = E2ESystem('baseline-ls-estimation')
+# print(BLER)
+# ber,bler = sim_ber(model_ls_estimation, ebno_dbs, batch_size=64, num_target_block_errors=100, max_mc_iter=100)
+# BLER['baseline-ls-estimation'] = bler.numpy(); BER['baseline-ls-estimation'] = ber.numpy()
+# print(BLER)
+# plt.figure(figsize=(10,6))
+# # Baseline - Perfect CSI
+# plt.semilogy(ebno_dbs, BLER['baseline-perfect-csi'], 'o-', c=f'C0', label=f'Baseline - Perfect CSI')    
+# # Baseline - LS Estimation
+# plt.semilogy(ebno_dbs, BLER['baseline-ls-estimation'], 'x--', c=f'C1', label=f'Baseline - LS Estimation')
+# plt.xlabel(r"$E_b/N_0$ (dB)")
+# plt.ylabel("BLER")
+# plt.grid(which="both")
+# plt.ylim((1e-4, 1.0))
+# plt.legend()
+# plt.tight_layout()
 
 """# 4. Neural Receiver Training"""
 
 # In[37]:
 
 
-# The end-to-end system equipped with the neural receiver is instantiated for training.
-# When called, it therefore returns the estimated BMD rate
-model = E2ESystem('neural-receiver', training=True)
+# # The end-to-end system equipped with the neural receiver is instantiated for training.
+# # When called, it therefore returns the estimated BMD rate
+# model = E2ESystem('neural-receiver', training=True)
 
-# Sampling a batch of SNRs
-ebno_db = tf.random.uniform(shape=[], minval=ebno_db_min, maxval=ebno_db_max)
-# Forward pass
-with tf.GradientTape() as tape:
-    rate = model(training_batch_size, ebno_db)
-    # Tensorflow optimizers only know how to minimize loss function.
-    # Therefore, a loss function is defined as the additive inverse of the BMD rate
-    loss = -rate
+# # Sampling a batch of SNRs
+# ebno_db = tf.random.uniform(shape=[], minval=ebno_db_min, maxval=ebno_db_max)
+# # Forward pass
+# with tf.GradientTape() as tape:
+#     rate = model(training_batch_size, ebno_db)
+#     # Tensorflow optimizers only know how to minimize loss function.
+#     # Therefore, a loss function is defined as the additive inverse of the BMD rate
+#     loss = -rate
 
-# In[38]:
+# # In[38]:
 
 
-optimizer = tf.keras.optimizers.Adam()
+# optimizer = tf.keras.optimizers.Adam()
 
-# Computing and applying gradients        
-weights = model.trainable_weights
-grads = tape.gradient(loss, weights)
-optimizer.apply_gradients(zip(grads, weights))
+# # Computing and applying gradients        
+# weights = model.trainable_weights
+# grads = tape.gradient(loss, weights)
+# optimizer.apply_gradients(zip(grads, weights))
 
 # In[39]:
 
@@ -1076,7 +1075,7 @@ for i in range(num_training_iterations):
     grads = tape.gradient(loss, weights)
     optimizer.apply_gradients(zip(grads, weights))
     # Periodically printing the progress
-    if i % 100 == 0:
+    if i % 5 == 0:
         print('Iteration {}/{}  Rate: {:.4f} bit'.format(i, num_training_iterations, rate.numpy()), end='\r')
 
 # Save the weights in a file
@@ -1088,29 +1087,30 @@ with open(model_weights_path, 'wb') as f:
 # In[40]:
 
 
-model_nn_receiver_trained = E2ESystem('neural-receiver')
+model_nn_receiver = E2ESystem('neural-receiver')
 
 # Run one inference to build the layers and loading the weights
-model_nn_receiver_trained(1, tf.constant(10.0, tf.float32))
+model_nn_receiver(1, tf.constant(10.0, tf.float32))
 with open(model_weights_path, 'rb') as f:
     weights = pickle.load(f)
-model_nn_receiver_trained.set_weights(weights)
+model_nn_receiver.set_weights(weights)
 
 # Evaluations
-_,bler = sim_ber(model_nn_receiver_trained, ebno_dbs, batch_size=64, num_target_block_errors=100, max_mc_iter=100)
-BLER['neural-receiver'] = bler.numpy()
+ber,bler = sim_ber(model_nn_receiver, ebno_dbs, batch_size=64, num_target_block_errors=100, max_mc_iter=100)
+BLER['neural-receiver'] = bler.numpy(); BER['neural-receiver'] = ber.numpy(); 
+print(BLER); print(BER)
 
-
-# In[41]:
 
 
 plt.figure(figsize=(10,6))
-# Baseline - Perfect CSI
-plt.semilogy(ebno_dbs, BLER['baseline-perfect-csi'], 'o-', c=f'C0', label=f'Baseline - Perfect CSI')    
-# Baseline - LS Estimation
-plt.semilogy(ebno_dbs, BLER['baseline-ls-estimation'], 'x--', c=f'C1', label=f'Baseline - LS Estimation')
+# # Baseline - Perfect CSI
+# plt.semilogy(ebno_dbs, BLER['baseline-perfect-csi'], 'o-', c=f'C0', label=f'Baseline - Perfect CSI')    
+# # Baseline - LS Estimation
+# plt.semilogy(ebno_dbs, BLER['baseline-ls-estimation'], 'x--', c=f'C1', label=f'Baseline - LS Estimation')
 # Neural receiver
 plt.semilogy(ebno_dbs, BLER['neural-receiver'], 's-.', c=f'C2', label=f'Neural receiver')
+f = model_weights_path + '.png'
+plt.savefig(f)
 #
 plt.xlabel(r"$E_b/N_0$ (dB)")
 plt.ylabel("BLER")
